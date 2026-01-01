@@ -17,10 +17,18 @@ mcp_server = FastMCP("julia")
 
 
 class JuliaSession:
-    def __init__(self, project_path: str, sentinel: str, *, is_temp: bool = False):
+    def __init__(
+        self,
+        project_path: str,
+        sentinel: str,
+        *,
+        is_temp: bool = False,
+        init_code: str | None = None,
+    ):
         self.project_path = project_path
         self.sentinel = sentinel
         self.is_temp = is_temp
+        self.init_code = init_code
         self.process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
 
@@ -50,6 +58,9 @@ class JuliaSession:
             "",
             timeout=120.0,  # generous startup timeout
         )
+
+        if self.init_code:
+            await self._execute_raw(self.init_code, timeout=None)
 
     def is_alive(self) -> bool:
         return self.process is not None and self.process.returncode is None
@@ -145,12 +156,20 @@ class SessionManager:
             # Create new session
             sentinel = f"__JULIA_MCP_{uuid.uuid4().hex}__"
             is_temp = env_path is None
+            init_code = None
             if is_temp:
                 project_path = tempfile.mkdtemp(prefix="julia-mcp-")
             else:
-                project_path = str(Path(env_path).resolve())
+                resolved = Path(env_path).resolve()
+                if resolved.name == "test":
+                    project_path = str(resolved.parent)
+                    init_code = "using TestEnv; TestEnv.activate()"
+                else:
+                    project_path = str(resolved)
 
-            session = JuliaSession(project_path, sentinel, is_temp=is_temp)
+            session = JuliaSession(
+                project_path, sentinel, is_temp=is_temp, init_code=init_code,
+            )
             await session.start()
             self._sessions[key] = session
             return session
@@ -164,9 +183,10 @@ class SessionManager:
     def list_sessions(self) -> list[dict]:
         result = []
         for key, session in self._sessions.items():
+            env_path = session.project_path if session.is_temp else key
             result.append(
                 {
-                    "project_path": session.project_path,
+                    "env_path": env_path,
                     "alive": session.is_alive(),
                     "temp": session.is_temp,
                 }
@@ -237,7 +257,7 @@ async def julia_list_sessions() -> str:
     lines = []
     for s in sessions:
         status = "alive" if s["alive"] else "dead"
-        label = f"{s['project_path']} (temp)" if s["temp"] else s["project_path"]
+        label = f"{s['env_path']} (temp)" if s["temp"] else s["env_path"]
         lines.append(f"  {label}: {status}")
     return "Active Julia sessions:\n" + "\n".join(lines)
 
