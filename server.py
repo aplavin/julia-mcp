@@ -10,7 +10,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 DEFAULT_TIMEOUT = 60.0
-PKG_PATTERN = re.compile(r"\b(Pkg\.|using |import )")
+PKG_PATTERN = re.compile(r"\bPkg\.")
 TEMP_SESSION_KEY = "__temp__"
 
 mcp_server = FastMCP("julia")
@@ -223,7 +223,7 @@ async def julia_eval(
     Args:
         code: Julia code to evaluate. Use display(...)/println(...) to see output.
         env_path: Julia project directory path. Omit for a temporary environment.
-        timeout: Seconds (default: 60). Auto-disabled for Pkg/using/import.
+        timeout: Seconds (default: 60). Auto-disabled for Pkg operations.
     """
     if timeout is None:
         effective_timeout: float | None = (
