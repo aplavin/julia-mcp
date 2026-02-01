@@ -14,7 +14,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 DEFAULT_TIMEOUT = 60.0
-DEFAULT_JULIA_ARGS = ("--startup-file=no", "--threads=auto")
+DEFAULT_JULIA_ARGS = ("--threads=auto",)
 PKG_PATTERN = re.compile(r"\bPkg\.")
 TEMP_SESSION_KEY = "__temp__"
 
