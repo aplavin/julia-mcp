@@ -29,10 +29,10 @@ The server itself is written in Python since the Python MCP protocol implementat
 First, clone the repository:
 
 ```bash
+cd /any_directory
 git clone https://github.com/aplavin/julia-mcp.git
 ```
-
-Then register the server with your client of choice. In all examples below, replace `/path/to/julia-mcp` with the actual path where you cloned the repo.
+Then register the server with your client of choice (see below).
 
 That's it! Your AI assistant can now execute Julia code more efficiently, saving of TTFX.
 
@@ -41,13 +41,13 @@ That's it! Your AI assistant can now execute Julia code more efficiently, saving
 User-wide (recommended — makes Julia available in all projects):
 
 ```bash
-claude mcp add --scope user julia -- uv run --directory /path/to/julia-mcp python server.py
+claude mcp add --scope user julia -- uv run --directory /any_directory/julia-mcp python server.py
 ```
 
 Project-scoped (only available in the current project):
 
 ```bash
-claude mcp add --scope project julia -- uv run --directory /path/to/julia-mcp python server.py
+claude mcp add --scope project julia -- uv run --directory /any_directory/julia-mcp python server.py
 ```
 
 ### Claude Desktop
@@ -59,7 +59,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "julia": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py"]
+      "args": ["run", "--directory", "/any_directory/julia-mcp", "python", "server.py"]
     }
   }
 }
