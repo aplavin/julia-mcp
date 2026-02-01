@@ -122,8 +122,9 @@ class JuliaSession:
         self.process.stdin.write(payload.encode())
         await self.process.stdin.drain()
 
+        lines: list[str] = []
+
         async def read_until_sentinel() -> str:
-            lines: list[str] = []
             while True:
                 raw = await self.process.stdout.readline()
                 if not raw:
@@ -147,10 +148,11 @@ class JuliaSession:
             except asyncio.TimeoutError:
                 self.process.kill()
                 await self.process.wait()
-                raise RuntimeError(
-                    f"Execution timed out after {timeout}s. "
-                    "Session killed; it will restart on next call."
-                )
+                partial = "\n".join(lines)
+                msg = f"Execution timed out after {timeout}s. Session killed; it will restart on next call."
+                if partial:
+                    msg += f"\n\nOutput before timeout:\n{partial}"
+                raise RuntimeError(msg)
         else:
             return await read_until_sentinel()
 
