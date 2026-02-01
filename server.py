@@ -90,7 +90,9 @@ class JuliaSession:
         async with self.lock:
             if not self.is_alive():
                 raise RuntimeError("Julia session has died unexpectedly")
-            wrapped = "begin\n" + code + "\nnothing\nend"
+            # hex-encode to avoid string escaping issues; include_string for sequential parse-eval (macros work)
+            hex_encoded = code.encode().hex()
+            wrapped = f'include_string(Main, String(hex2bytes("{hex_encoded}"))); nothing'
             return await self._execute_raw(wrapped, timeout)
 
     async def _execute_raw(self, code: str, timeout: float | None) -> str:
