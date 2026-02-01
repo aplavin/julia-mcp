@@ -42,12 +42,12 @@ async def manager():
 
 class TestJuliaSession:
     async def test_basic_eval(self, session: JuliaSession):
-        result = await session.execute("1 + 1", timeout=30.0)
+        result = await session.execute("println(1 + 1)", timeout=30.0)
         assert result == "2"
 
     async def test_variable_persistence(self, session: JuliaSession):
         await session.execute("x = 42", timeout=30.0)
-        result = await session.execute("x + 1", timeout=30.0)
+        result = await session.execute("println(x + 1)", timeout=30.0)
         assert result == "43"
 
     async def test_println(self, session: JuliaSession):
@@ -55,14 +55,23 @@ class TestJuliaSession:
         assert result == "hello world"
 
     async def test_multiline(self, session: JuliaSession):
-        code = "function foo(x)\n    x * 2\nend\nfoo(21)"
+        code = "function foo(x)\n    x * 2\nend\nprintln(foo(21))"
         result = await session.execute(code, timeout=30.0)
         assert "42" in result
 
     async def test_multi_expression(self, session: JuliaSession):
-        result = await session.execute("a = 1\nb = 2\na + b", timeout=30.0)
-        lines = result.strip().splitlines()
-        assert lines[-1] == "3"
+        result = await session.execute("a = 1\nb = 2\nprintln(a + b)", timeout=30.0)
+        assert result.strip() == "3"
+
+    async def test_no_auto_display(self, session: JuliaSession):
+        result = await session.execute("1 + 2\nprint(7)\n5 + 6", timeout=30.0)
+        assert result == "7"
+
+    async def test_using_import(self, session: JuliaSession):
+        result = await session.execute(
+            "using Statistics\nprintln(mean([1, 2, 3]))", timeout=30.0
+        )
+        assert result == "2.0"
 
     async def test_error_handling(self, session: JuliaSession):
         result = await session.execute('error("boom")', timeout=30.0)
@@ -71,7 +80,7 @@ class TestJuliaSession:
 
     async def test_error_does_not_kill_session(self, session: JuliaSession):
         await session.execute('error("boom")', timeout=30.0)
-        result = await session.execute("1 + 1", timeout=30.0)
+        result = await session.execute("println(1 + 1)", timeout=30.0)
         assert result == "2"
 
     async def test_nothing_result(self, session: JuliaSession):
@@ -79,7 +88,7 @@ class TestJuliaSession:
         assert "hi" in result
 
     async def test_large_output(self, session: JuliaSession):
-        result = await session.execute("collect(1:100)", timeout=30.0)
+        result = await session.execute("println(collect(1:100))", timeout=30.0)
         assert "1" in result
         assert "100" in result
 
@@ -93,7 +102,7 @@ class TestJuliaSession:
         n = 1_000_000
         result = await session.execute(f'print("a"^{n})', timeout=30.0)
         assert len(result) == n
-        result = await session.execute("1 + 1", timeout=30.0)
+        result = await session.execute("println(1 + 1)", timeout=30.0)
         assert result == "2"
 
     async def test_huge_single_line_then_restart(self, manager: SessionManager):
@@ -104,7 +113,7 @@ class TestJuliaSession:
         await manager.restart(None)
         s2 = await manager.get_or_create(None)
         assert s2 is not s
-        result = await s2.execute("1 + 1", timeout=30.0)
+        result = await s2.execute("println(1 + 1)", timeout=30.0)
         assert result == "2"
 
     async def test_timeout_kills_session(self, session: JuliaSession):
@@ -328,14 +337,14 @@ async def mcp_client_session():
 class TestMCPTools:
     async def test_eval_basic(self):
         async with mcp_client_session() as client:
-            result = await client.call_tool("julia_eval", {"code": "1 + 1"})
+            result = await client.call_tool("julia_eval", {"code": "println(1 + 1)"})
             assert not result.isError
             assert result.content[0].text == "2"
 
     async def test_eval_persistence(self):
         async with mcp_client_session() as client:
             await client.call_tool("julia_eval", {"code": "x = 42"})
-            result = await client.call_tool("julia_eval", {"code": "x + 1"})
+            result = await client.call_tool("julia_eval", {"code": "println(x + 1)"})
             assert result.content[0].text == "43"
 
     async def test_eval_error(self):
