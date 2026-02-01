@@ -65,6 +65,13 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
+### Codex CLI
+
+User-wide — makes Julia available in all projects: 
+```
+codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py
+```
+
 ### VS Code Copilot
 
 Add to `.vscode/settings.json`:
