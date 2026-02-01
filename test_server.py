@@ -83,6 +83,30 @@ class TestJuliaSession:
         assert "1" in result
         assert "100" in result
 
+    async def test_huge_single_line(self, session: JuliaSession):
+        n = 1_000_000
+        result = await session.execute(f'print("a"^{n})', timeout=30.0)
+        assert len(result) == n
+        assert result == "a" * n
+
+    async def test_huge_single_line_then_normal(self, session: JuliaSession):
+        n = 1_000_000
+        result = await session.execute(f'print("a"^{n})', timeout=30.0)
+        assert len(result) == n
+        result = await session.execute("1 + 1", timeout=30.0)
+        assert result == "2"
+
+    async def test_huge_single_line_then_restart(self, manager: SessionManager):
+        s = await manager.get_or_create(None)
+        n = 1_000_000
+        result = await s.execute(f'print("a"^{n})', timeout=30.0)
+        assert len(result) == n
+        await manager.restart(None)
+        s2 = await manager.get_or_create(None)
+        assert s2 is not s
+        result = await s2.execute("1 + 1", timeout=30.0)
+        assert result == "2"
+
     async def test_timeout_kills_session(self, session: JuliaSession):
         with pytest.raises(RuntimeError, match="timed out"):
             await session.execute("sleep(60)", timeout=2.0)

@@ -43,6 +43,7 @@ class JuliaSession:
             julia,
             "-i",
             "--startup-file=no",
+            "--threads=auto",
             f"--project={self.project_path}",
         ]
 
@@ -52,6 +53,7 @@ class JuliaSession:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            limit=64 * 1024 * 1024,  # 64 MB readline buffer
         )
 
         # Wait for readiness
@@ -77,7 +79,7 @@ class JuliaSession:
         assert self.process.stdin is not None
 
         sentinel_cmd = (
-            f'flush(stderr); println(stdout, "{self.sentinel}"); flush(stdout)'
+            f'flush(stderr); write(stdout, "\\n"); println(stdout, "{self.sentinel}"); flush(stdout)'
         )
         payload = code + "\n" + sentinel_cmd + "\n"
         self.process.stdin.write(payload.encode())
@@ -97,6 +99,9 @@ class JuliaSession:
                 if line == self.sentinel:
                     break
                 lines.append(line)
+            # The extra \n before sentinel may leave a trailing empty line
+            if lines and lines[-1] == "":
+                lines.pop()
             return "\n".join(lines)
 
         if timeout is not None:
