@@ -293,8 +293,6 @@ class TestTimeoutDetection:
     @pytest.mark.parametrize(
         "code",
         [
-            "using LinearAlgebra",
-            "import Pkg",
             "Pkg.add(\"Example\")",
             "using Pkg; Pkg.status()",
         ],
@@ -309,6 +307,8 @@ class TestTimeoutDetection:
             "x = 42",
             "let x = 1; end",
             "f(x) = x^2",
+            "using LinearAlgebra",
+            "import Pkg",
         ],
     )
     def test_pkg_pattern_no_match(self, code: str):
