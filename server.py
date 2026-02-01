@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 DEFAULT_TIMEOUT = 60.0
+DEFAULT_JULIA_ARGS = ("--startup-file=no", "--threads=auto")
 PKG_PATTERN = re.compile(r"\bPkg\.")
 TEMP_SESSION_KEY = "__temp__"
 
@@ -24,11 +26,13 @@ class JuliaSession:
         *,
         is_temp: bool = False,
         is_test: bool = False,
+        julia_args: tuple[str, ...] = DEFAULT_JULIA_ARGS,
     ):
         self.env_dir = env_dir
         self.sentinel = sentinel
         self.is_temp = is_temp
         self.is_test = is_test
+        self.julia_args = julia_args
         self.process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
 
@@ -54,8 +58,7 @@ class JuliaSession:
         cmd = [
             julia,
             "-i",
-            "--startup-file=no",
-            "--threads=auto",
+            *self.julia_args,
             f"--project={self.project_path}",
         ]
 
@@ -147,7 +150,8 @@ class JuliaSession:
 
 
 class SessionManager:
-    def __init__(self):
+    def __init__(self, julia_args: tuple[str, ...] = DEFAULT_JULIA_ARGS):
+        self.julia_args = julia_args
         self._sessions: dict[str, JuliaSession] = {}
         self._create_locks: dict[str, asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
@@ -193,6 +197,7 @@ class SessionManager:
 
             session = JuliaSession(
                 env_dir, sentinel, is_temp=is_temp, is_test=is_test,
+                julia_args=self.julia_args,
             )
             await session.start()
             self._sessions[key] = session
@@ -289,6 +294,9 @@ async def julia_list_sessions() -> str:
 
 
 def main():
+    global manager
+    julia_args = tuple(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_JULIA_ARGS
+    manager = SessionManager(julia_args=julia_args)
     mcp.run(transport="stdio")
 
 
