@@ -100,7 +100,11 @@ class JuliaSession:
                 raise RuntimeError("Julia session has died unexpectedly")
             # hex-encode to avoid string escaping issues; include_string for sequential parse-eval (macros work)
             hex_encoded = code.encode().hex()
-            wrapped = f'include_string(Main, String(hex2bytes("{hex_encoded}"))); nothing'
+            wrapped = (
+                f'try; Revise.revise(); catch; end;'
+                f'include_string(Main, String(hex2bytes("{hex_encoded}")));'
+                f'nothing'
+            )
             if self._log_file:
                 ts = time.strftime("%H:%M:%S")
                 self._log_file.write(f"[{ts}] julia> {code}\n")

@@ -160,6 +160,45 @@ class TestJuliaSession:
         with pytest.raises(RuntimeError, match="died unexpectedly"):
             await session.execute("1 + 1", timeout=30.0)
 
+    async def test_revise_picks_up_changes(self):
+        # Create a minimal Julia package in a temp dir
+        pkg_dir = tempfile.mkdtemp(prefix="julia-mcp-test-revise-")
+        src_dir = os.path.join(pkg_dir, "src")
+        os.makedirs(src_dir)
+
+        with open(os.path.join(pkg_dir, "Project.toml"), "w") as f:
+            f.write(
+                'name = "TestRevPkg"\n'
+                'uuid = "12345678-1234-1234-1234-123456789abc"\n'
+                'version = "0.1.0"\n'
+            )
+
+        src_file = os.path.join(src_dir, "TestRevPkg.jl")
+        with open(src_file, "w") as f:
+            f.write("module TestRevPkg\ngreet() = \"hello\"\nend\n")
+
+        # Start Julia directly in the package env
+        s = JuliaSession(pkg_dir, make_sentinel(), is_temp=True)
+        await s.start()
+        try:
+            await s.execute("using TestRevPkg", timeout=120.0)
+            result = await s.execute(
+                "println(TestRevPkg.greet())", timeout=60.0
+            )
+            assert result == "hello"
+
+            # Modify the source file on disk
+            with open(src_file, "w") as f:
+                f.write("module TestRevPkg\ngreet() = \"goodbye\"\nend\n")
+
+            # Call again — Revise should pick up the change
+            result = await s.execute(
+                "println(TestRevPkg.greet())", timeout=60.0
+            )
+            assert result == "goodbye"
+        finally:
+            await s.kill()
+
 
 # -- SessionManager tests --
 
