@@ -72,7 +72,8 @@ class JuliaSession:
         async with self.lock:
             if not self.is_alive():
                 raise RuntimeError("Julia session has died unexpectedly")
-            return await self._execute_raw(code, timeout)
+            wrapped = "begin\n" + code + "\nnothing\nend"
+            return await self._execute_raw(wrapped, timeout)
 
     async def _execute_raw(self, code: str, timeout: float | None) -> str:
         assert self.process is not None
@@ -220,7 +221,7 @@ async def julia_eval(
     Each env_path gets its own session, started lazily.
 
     Args:
-        code: Julia code to evaluate. Result of the last expression is displayed.
+        code: Julia code to evaluate. Use display(...)/println(...) to see output.
         env_path: Julia project directory path. Omit for a temporary environment.
         timeout: Seconds (default: 60). Auto-disabled for Pkg/using/import.
     """
