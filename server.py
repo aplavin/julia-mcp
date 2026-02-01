@@ -48,6 +48,7 @@ class JuliaSession:
 
         self.process = await asyncio.create_subprocess_exec(
             *cmd,
+            cwd=self.project_path,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
