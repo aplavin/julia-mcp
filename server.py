@@ -240,6 +240,8 @@ async def julia_eval(
 @mcp_server.tool()
 async def julia_restart(env_path: str | None = None) -> str:
     """Restart a Julia session, clearing all state.
+    You usually don't need this, preserve persistent sessions when possible for performance.
+    Only restart when you think the session in a bad or inconsistent state.
 
     Args:
         env_path: Environment to restart. If omitted, restarts the temporary session.
