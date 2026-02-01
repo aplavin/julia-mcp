@@ -1,11 +1,14 @@
 import asyncio
+import atexit
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
+from io import TextIOWrapper
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -27,6 +30,7 @@ class JuliaSession:
         is_temp: bool = False,
         is_test: bool = False,
         julia_args: tuple[str, ...] = DEFAULT_JULIA_ARGS,
+        log_file: TextIOWrapper | None = None,
     ):
         self.env_dir = env_dir
         self.sentinel = sentinel
@@ -35,6 +39,7 @@ class JuliaSession:
         self.julia_args = julia_args
         self.process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
+        self._log_file = log_file
 
     @property
     def project_path(self) -> str:
@@ -96,7 +101,15 @@ class JuliaSession:
             # hex-encode to avoid string escaping issues; include_string for sequential parse-eval (macros work)
             hex_encoded = code.encode().hex()
             wrapped = f'include_string(Main, String(hex2bytes("{hex_encoded}"))); nothing'
-            return await self._execute_raw(wrapped, timeout)
+            if self._log_file:
+                ts = time.strftime("%H:%M:%S")
+                self._log_file.write(f"[{ts}] julia> {code}\n")
+                self._log_file.flush()
+            output = await self._execute_raw(wrapped, timeout)
+            if self._log_file and output:
+                self._log_file.write(f"{output}\n\n")
+                self._log_file.flush()
+            return output
 
     async def _execute_raw(self, code: str, timeout: float | None) -> str:
         assert self.process is not None
@@ -155,6 +168,24 @@ class SessionManager:
         self._sessions: dict[str, JuliaSession] = {}
         self._create_locks: dict[str, asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
+        self._log_dir = tempfile.mkdtemp(prefix="julia-mcp-logs-")
+        self._log_files: dict[str, TextIOWrapper] = {}
+        atexit.register(self._cleanup_logs)
+
+    def _get_log_file(self, key: str) -> TextIOWrapper:
+        if key not in self._log_files:
+            safe_name = key.replace("/", "_").replace("\\", "_").strip("_") or "temp"
+            path = os.path.join(self._log_dir, f"{safe_name}.log")
+            self._log_files[key] = open(path, "a")
+        return self._log_files[key]
+
+    def _cleanup_logs(self) -> None:
+        for f in self._log_files.values():
+            try:
+                f.close()
+            except Exception:
+                pass
+        shutil.rmtree(self._log_dir, ignore_errors=True)
 
     def _key(self, env_path: str | None) -> str:
         if env_path is None:
@@ -198,6 +229,7 @@ class SessionManager:
             session = JuliaSession(
                 env_dir, sentinel, is_temp=is_temp, is_test=is_test,
                 julia_args=self.julia_args,
+                log_file=self._get_log_file(key),
             )
             await session.start()
             self._sessions[key] = session
@@ -210,19 +242,23 @@ class SessionManager:
             del self._sessions[key]
 
     def list_sessions(self) -> list[dict]:
-        return [
-            {
+        result = []
+        for key, session in self._sessions.items():
+            info = {
                 "env_path": session.env_dir,
                 "alive": session.is_alive(),
                 "temp": session.is_temp,
             }
-            for session in self._sessions.values()
-        ]
+            if key in self._log_files:
+                info["log_file"] = self._log_files[key].name
+            result.append(info)
+        return result
 
     async def shutdown(self) -> None:
         for session in self._sessions.values():
             await session.kill()
         self._sessions.clear()
+        self._cleanup_logs()
 
 
 manager = SessionManager()
@@ -289,7 +325,8 @@ async def julia_list_sessions() -> str:
     for s in sessions:
         status = "alive" if s["alive"] else "dead"
         label = f"{s['env_path']} (temp)" if s["temp"] else s["env_path"]
-        lines.append(f"  {label}: {status}")
+        log = f" log={s['log_file']}" if "log_file" in s else ""
+        lines.append(f"  {label}: {status}{log}")
     return "Active Julia sessions:\n" + "\n".join(lines)
 
 
@@ -297,6 +334,7 @@ def main():
     global manager
     julia_args = tuple(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_JULIA_ARGS
     manager = SessionManager(julia_args=julia_args)
+    print(f"Julia MCP log directory: {manager._log_dir}", file=sys.stderr)
     mcp.run(transport="stdio")
 
 
