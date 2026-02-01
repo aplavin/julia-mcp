@@ -62,6 +62,12 @@ class JuliaSession:
             timeout=120.0,  # generous startup timeout
         )
 
+        # Auto-load Revise so code changes are picked up without restarting
+        await self._execute_raw(
+            "try; using Revise; catch; end",
+            timeout=120.0,
+        )
+
         if self.init_code:
             await self._execute_raw(self.init_code, timeout=None)
 
@@ -247,8 +253,10 @@ async def julia_eval(
 @mcp_server.tool()
 async def julia_restart(env_path: str | None = None) -> str:
     """Restart a Julia session, clearing all state.
-    You usually don't need this, preserve persistent sessions when possible for performance.
-    Only restart when you think the session in a bad or inconsistent state.
+
+    IMPORTANT: Restarting is slow and loses all session state. Very rarely needed.
+    Revise.jl is loaded automatically in every session, so code changes to loaded packages are picked up without restarting.
+    Only restart as a last resort when the session is truly broken, or code changes that Revise cannot fix.
 
     Args:
         env_path: Environment to restart. If omitted, restarts the temporary session.
