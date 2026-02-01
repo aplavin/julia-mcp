@@ -13,7 +13,7 @@ DEFAULT_TIMEOUT = 60.0
 PKG_PATTERN = re.compile(r"\bPkg\.")
 TEMP_SESSION_KEY = "__temp__"
 
-mcp_server = FastMCP("julia")
+mcp = FastMCP("julia")
 
 
 class JuliaSession:
@@ -223,7 +223,7 @@ class SessionManager:
 manager = SessionManager()
 
 
-@mcp_server.tool()
+@mcp.tool()
 async def julia_eval(
     code: str,
     env_path: str | None = None,
@@ -258,7 +258,7 @@ async def julia_eval(
         return f"Error: {e}"
 
 
-@mcp_server.tool()
+@mcp.tool()
 async def julia_restart(env_path: str | None = None) -> str:
     """Restart a Julia session, clearing all state.
 
@@ -274,7 +274,7 @@ async def julia_restart(env_path: str | None = None) -> str:
     return "Session restarted. A fresh session will start on next julia_eval call."
 
 
-@mcp_server.tool()
+@mcp.tool()
 async def julia_list_sessions() -> str:
     """List all active Julia sessions and their environments."""
     sessions = manager.list_sessions()
@@ -289,7 +289,7 @@ async def julia_list_sessions() -> str:
 
 
 def main():
-    mcp_server.run(transport="stdio")
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
