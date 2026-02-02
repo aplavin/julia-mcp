@@ -19,18 +19,30 @@ mcp_server = FastMCP("julia")
 class JuliaSession:
     def __init__(
         self,
-        project_path: str,
+        env_dir: str,
         sentinel: str,
         *,
         is_temp: bool = False,
-        init_code: str | None = None,
+        is_test: bool = False,
     ):
-        self.project_path = project_path
+        self.env_dir = env_dir
         self.sentinel = sentinel
         self.is_temp = is_temp
-        self.init_code = init_code
+        self.is_test = is_test
         self.process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
+
+    @property
+    def project_path(self) -> str:
+        if self.is_test:
+            return str(Path(self.env_dir).parent)
+        return self.env_dir
+
+    @property
+    def init_code(self) -> str | None:
+        if self.is_test:
+            return "using TestEnv; TestEnv.activate()"
+        return None
 
     async def start(self) -> None:
         julia = shutil.which("julia")
@@ -49,7 +61,7 @@ class JuliaSession:
 
         self.process = await asyncio.create_subprocess_exec(
             *cmd,
-            cwd=self.project_path,
+            cwd=self.env_dir,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -128,8 +140,8 @@ class JuliaSession:
         if self.process is not None and self.process.returncode is None:
             self.process.kill()
             await self.process.wait()
-        if self.is_temp and os.path.isdir(self.project_path):
-            shutil.rmtree(self.project_path, ignore_errors=True)
+        if self.is_temp and os.path.isdir(self.env_dir):
+            shutil.rmtree(self.env_dir, ignore_errors=True)
 
 
 class SessionManager:
@@ -169,19 +181,16 @@ class SessionManager:
             # Create new session
             sentinel = f"__JULIA_MCP_{uuid.uuid4().hex}__"
             is_temp = env_path is None
-            init_code = None
             if is_temp:
-                project_path = tempfile.mkdtemp(prefix="julia-mcp-")
+                env_dir = tempfile.mkdtemp(prefix="julia-mcp-")
+                is_test = False
             else:
                 resolved = Path(env_path).resolve()
-                if resolved.name == "test":
-                    project_path = str(resolved.parent)
-                    init_code = "using TestEnv; TestEnv.activate()"
-                else:
-                    project_path = str(resolved)
+                env_dir = str(resolved)
+                is_test = resolved.name == "test"
 
             session = JuliaSession(
-                project_path, sentinel, is_temp=is_temp, init_code=init_code,
+                env_dir, sentinel, is_temp=is_temp, is_test=is_test,
             )
             await session.start()
             self._sessions[key] = session
@@ -194,17 +203,14 @@ class SessionManager:
             del self._sessions[key]
 
     def list_sessions(self) -> list[dict]:
-        result = []
-        for key, session in self._sessions.items():
-            env_path = session.project_path if session.is_temp else key
-            result.append(
-                {
-                    "env_path": env_path,
-                    "alive": session.is_alive(),
-                    "temp": session.is_temp,
-                }
-            )
-        return result
+        return [
+            {
+                "env_path": session.env_dir,
+                "alive": session.is_alive(),
+                "temp": session.is_temp,
+            }
+            for session in self._sessions.values()
+        ]
 
     async def shutdown(self) -> None:
         for session in self._sessions.values():

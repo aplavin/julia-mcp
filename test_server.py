@@ -418,6 +418,41 @@ class TestMCPTools:
             )
             assert "UndefVarError" in result.content[0].text
 
+    async def test_eval_cwd_regular(self):
+        async with mcp_client_session() as client:
+            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            try:
+                result = await client.call_tool(
+                    "julia_eval", {"code": "println(pwd())", "env_path": tmpdir}
+                )
+                assert result.content[0].text == tmpdir
+                result = await client.call_tool(
+                    "julia_eval",
+                    {"code": "println(Base.active_project())", "env_path": tmpdir},
+                )
+                assert tmpdir in result.content[0].text
+            finally:
+                os.rmdir(tmpdir)
+
+    async def test_eval_cwd_test_dir(self):
+        async with mcp_client_session() as client:
+            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            test_dir = os.path.join(tmpdir, "test")
+            os.makedirs(test_dir)
+            try:
+                result = await client.call_tool(
+                    "julia_eval", {"code": "println(pwd())", "env_path": test_dir}
+                )
+                assert result.content[0].text == test_dir
+                result = await client.call_tool(
+                    "julia_eval",
+                    {"code": "println(Base.active_project())", "env_path": test_dir},
+                )
+                # --project= points to parent, not the test dir
+                assert tmpdir in result.content[0].text
+            finally:
+                shutil.rmtree(tmpdir)
+
     async def test_eval_timeout(self):
         async with mcp_client_session() as client:
             result = await client.call_tool(
