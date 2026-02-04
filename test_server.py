@@ -73,6 +73,11 @@ class TestJuliaSession:
         )
         assert result == "2.0"
 
+    async def test_macro_after_import(self, session: JuliaSession):
+        code = "using Test\n@test 1 == 1\nprintln(\"ok\")"
+        result = await session.execute(code, timeout=60.0)
+        assert "ok" in result
+
     async def test_error_handling(self, session: JuliaSession):
         result = await session.execute('error("boom")', timeout=30.0)
         assert "boom" in result
