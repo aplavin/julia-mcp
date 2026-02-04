@@ -263,6 +263,7 @@ async def julia_restart(env_path: str | None = None) -> str:
     IMPORTANT: Restarting is slow and loses all session state. Very rarely needed.
     Revise.jl is loaded automatically in every session, so code changes to loaded packages are picked up without restarting.
     Only restart as a last resort when the session is truly broken, or code changes that Revise cannot fix.
+    Do NOT restart just because source files were edited between script or test runs — Revise picks up those changes automatically.
 
     Args:
         env_path: Environment to restart. If omitted, restarts the temporary session.
