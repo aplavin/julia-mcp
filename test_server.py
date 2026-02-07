@@ -286,6 +286,24 @@ class TestSessionManager:
         assert os.path.isdir(tmpdir)
         os.rmdir(tmpdir)
 
+    async def test_default_julia_args_threads(self):
+        m = SessionManager()
+        try:
+            session = await m.get_or_create(None)
+            result = await session.execute("println(Threads.nthreads())", timeout=30.0)
+            assert int(result) > 1
+        finally:
+            await m.shutdown()
+
+    async def test_custom_julia_args_threads(self):
+        m = SessionManager(julia_args=("--threads=1",))
+        try:
+            session = await m.get_or_create(None)
+            result = await session.execute("println(Threads.nthreads())", timeout=30.0)
+            assert result == "1"
+        finally:
+            await m.shutdown()
+
 
 # -- Timeout auto-detection tests --
 
@@ -331,7 +349,7 @@ async def mcp_client_session():
     server_mod.manager = fresh_manager
     try:
         async with create_connected_server_and_client_session(
-            server_mod.mcp_server._mcp_server
+            server_mod.mcp._mcp_server
         ) as client:
             yield client
     finally:

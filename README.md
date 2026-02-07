@@ -50,6 +50,16 @@ Project-scoped (only available in the current project):
 claude mcp add --scope project julia -- uv run --directory /any_directory/julia-mcp python server.py
 ```
 
+<details>
+<summary>Custom Julia CLI arguments</summary>
+
+Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+
+```bash
+claude mcp add --scope user julia -- uv run --directory /any_directory/julia-mcp python server.py --threads=1 --startup-file=yes
+```
+</details>
+
 ### Claude Desktop
 
 Add to `claude_desktop_config.json`:
@@ -65,12 +75,39 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
+<details>
+<summary>Custom Julia CLI arguments</summary>
+
+Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+
+```json
+{
+  "mcpServers": {
+    "julia": {
+      "command": "uv",
+      "args": ["run", "--directory", "/any_directory/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
+    }
+  }
+}
+```
+</details>
+
 ### Codex CLI
 
 User-wide — makes Julia available in all projects: 
 ```
 codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py
 ```
+
+<details>
+<summary>Custom Julia CLI arguments</summary>
+
+Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+
+```
+codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py --threads=1 --startup-file=yes
+```
+</details>
 
 ### VS Code Copilot
 
@@ -89,11 +126,30 @@ Add to `.vscode/settings.json`:
 }
 ```
 
+<details>
+<summary>Custom Julia CLI arguments</summary>
+
+Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "julia": {
+        "command": "uv",
+        "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
+      }
+    }
+  }
+}
+```
+</details>
+
 ## Details
 
 - Each unique `env_path` gets its own isolated Julia session. Omitting `env_path` uses a temporary session that is cleaned up on MCP shutdown.
 - If `env_path` ends in `/test/`, the parent directory is used as the project and `TestEnv` is activated automatically. For this to work, `TestEnv` must be installed in the base environment.
-- Julia is launched with `--threads=auto` and `--startup-file=no`.
+- Julia is launched with `--threads=auto` and `--startup-file=no` by default. Pass custom Julia CLI flags after `server.py` to override these defaults entirely.
 
 
 ## Alternatives
