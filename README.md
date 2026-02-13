@@ -94,10 +94,15 @@ Append Julia flags after `server.py` to override the defaults (`--startup-file=n
 
 ### Codex CLI
 
-User-wide — makes Julia available in all projects: 
+Add the follwing to `~/.codex/config.toml` (user-wide) or to the project-scoped `.codex/config.toml`:
+```toml
+[mcp_servers.juliaMPC]
+command = "uv"
+args = ["run", "--directory", "/Users/scheidan/MCP/julia-mcp", "python", "server.py"]
+startup_timeout_sec = 30 # default 10 sec
+tool_timeout_sec = 600   # default 60 sec
 ```
-codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py
-```
+This timeouts here define the maximum duration that Codex is waiting. You can call the server with a shorter but not longer durations.
 
 <details>
 <summary>Custom Julia CLI arguments</summary>
