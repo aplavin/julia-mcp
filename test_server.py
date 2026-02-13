@@ -482,3 +482,34 @@ class TestMCPTools:
                 "julia_eval", {"code": "sleep(60)", "timeout": 2.0}
             )
             assert "timed out" in result.content[0].text
+
+    async def test_eval_timeout_includes_partial_output(self):
+        async with mcp_client_session() as client:
+            code = 'println("before_timeout"); sleep(60)'
+            result = await client.call_tool(
+                "julia_eval", {"code": code, "timeout": 1.0}
+            )
+            text = result.content[0].text
+            assert "timed out" in text
+            assert "before_timeout" in text
+
+    async def test_eval_timeout_multiple_lines_partial_output(self):
+        async with mcp_client_session() as client:
+            code = 'for i in 1:5; println("line_$i"); end; sleep(60)'
+            result = await client.call_tool(
+                "julia_eval", {"code": code, "timeout": 1.0}
+            )
+            text = result.content[0].text
+            assert "timed out" in text
+            for i in range(1, 6):
+                assert f"line_{i}" in text
+
+    async def test_eval_timeout_no_output_no_section(self):
+        """When nothing was printed before timeout, don't show an empty output section."""
+        async with mcp_client_session() as client:
+            result = await client.call_tool(
+                "julia_eval", {"code": "sleep(60)", "timeout": 1.0}
+            )
+            text = result.content[0].text
+            assert "timed out" in text
+            assert "Output before timeout" not in text
