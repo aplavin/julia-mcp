@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import hashlib
 import os
 import re
 import shutil
@@ -17,6 +18,8 @@ DEFAULT_TIMEOUT = 60.0
 DEFAULT_JULIA_ARGS = ("--startup-file=no", "--threads=auto")
 PKG_PATTERN = re.compile(r"\bPkg\.")
 TEMP_SESSION_KEY = "__temp__"
+OUTPUT_THRESHOLD = 5000  # chars; outputs larger than this are written to a file
+OUTPUT_PREVIEW = 500  # chars of preview shown inline when output is written to a file
 
 mcp = FastMCP("julia")
 
@@ -185,6 +188,19 @@ class SessionManager:
             self._log_files[key] = open(path, "a")
         return self._log_files[key]
 
+    def write_large_output(self, output: str) -> str:
+        """Write output to a content-hashed file and return the path.
+
+        Using a content hash means multiple concurrent LLM instances writing
+        identical output converge to the same filename.
+        """
+        h = hashlib.sha256(output.encode()).hexdigest()[:16]
+        path = os.path.join(self._log_dir, f"output_{h}.txt")
+        if not os.path.exists(path):
+            with open(path, "w") as f:
+                f.write(output)
+        return path
+
     def _cleanup_logs(self) -> None:
         for f in self._log_files.values():
             try:
@@ -281,6 +297,10 @@ async def julia_eval(
     Persistent REPL session with state preserved between calls.
     Each env_path gets its own session, started lazily.
 
+    Large outputs (over 5000 chars) are written to a file. The tool returns the
+    file path and a short preview. Use Bash/Grep/Read on that file to inspect
+    the full output without loading it all into context.
+
     Args:
         code: Julia code to evaluate. Use display(...)/println(...) to see output.
         env_path: Julia project directory path. Omit for a temporary environment.
@@ -296,7 +316,16 @@ async def julia_eval(
     try:
         session = await manager.get_or_create(env_path)
         output = await session.execute(code, timeout=effective_timeout)
-        return output if output else "(no output)"
+        if not output:
+            return "(no output)"
+        if len(output) > OUTPUT_THRESHOLD:
+            path = manager.write_large_output(output)
+            preview = output[:OUTPUT_PREVIEW]
+            return (
+                f"[Output too large ({len(output):,} chars). Full output written to {path}]\n"
+                f"\nFirst {OUTPUT_PREVIEW} chars:\n{preview}"
+            )
+        return output
     except RuntimeError as e:
         # Clean up dead session so next call starts fresh
         key = manager._key(env_path)

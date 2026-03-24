@@ -11,7 +11,9 @@ import pytest_asyncio
 from mcp.shared.memory import create_connected_server_and_client_session
 
 import server as server_mod
-from server import JuliaSession, SessionManager, TEMP_SESSION_KEY
+import hashlib
+
+from server import JuliaSession, SessionManager, TEMP_SESSION_KEY, OUTPUT_THRESHOLD, OUTPUT_PREVIEW
 
 
 # -- Helpers --
@@ -552,3 +554,66 @@ class TestMCPTools:
             text = result.content[0].text
             assert "timed out" in text
             assert "Output before timeout" not in text
+
+    async def test_large_output_written_to_file(self):
+        """Output exceeding OUTPUT_THRESHOLD is written to a file, not returned inline."""
+        async with mcp_client_session() as client:
+            n = OUTPUT_THRESHOLD + 1
+            result = await client.call_tool(
+                "julia_eval", {"code": f'print("x"^{n})'}
+            )
+            text = result.content[0].text
+            assert "Output too large" in text
+            assert f"{n:,} chars" in text
+            # Extract file path from the message and verify the file exists with full output
+            path_line = [l for l in text.splitlines() if "output_" in l][0]
+            path = path_line.split("written to ")[-1].rstrip("]")
+            assert os.path.isfile(path)
+            assert open(path).read() == "x" * n
+
+    async def test_large_output_preview_shown(self):
+        """The first OUTPUT_PREVIEW chars are shown inline."""
+        async with mcp_client_session() as client:
+            n = OUTPUT_THRESHOLD + 1
+            result = await client.call_tool(
+                "julia_eval", {"code": f'print("y"^{n})'}
+            )
+            text = result.content[0].text
+            assert "y" * OUTPUT_PREVIEW in text
+
+    async def test_small_output_returned_inline(self):
+        """Output at or below the threshold is returned inline as before."""
+        async with mcp_client_session() as client:
+            result = await client.call_tool(
+                "julia_eval", {"code": f'print("z"^{OUTPUT_THRESHOLD})'}
+            )
+            text = result.content[0].text
+            assert text == "z" * OUTPUT_THRESHOLD
+
+    async def test_large_output_same_content_same_file(self):
+        """Identical outputs map to the same file (deduplication)."""
+        async with mcp_client_session() as client:
+            n = OUTPUT_THRESHOLD + 1
+            paths = []
+            for _ in range(2):
+                result = await client.call_tool(
+                    "julia_eval", {"code": f'print("d"^{n})'}
+                )
+                text = result.content[0].text
+                path_line = [l for l in text.splitlines() if "output_" in l][0]
+                paths.append(path_line.split("written to ")[-1].rstrip("]"))
+            assert paths[0] == paths[1]
+
+    async def test_large_output_different_content_different_file(self):
+        """Different outputs map to different files."""
+        async with mcp_client_session() as client:
+            n = OUTPUT_THRESHOLD + 1
+            paths = []
+            for ch in ("e", "f"):
+                result = await client.call_tool(
+                    "julia_eval", {"code": f'print("{ch}"^{n})'}
+                )
+                text = result.content[0].text
+                path_line = [l for l in text.splitlines() if "output_" in l][0]
+                paths.append(path_line.split("written to ")[-1].rstrip("]"))
+            assert paths[0] != paths[1]
