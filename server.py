@@ -309,6 +309,7 @@ async def julia_eval(
 
     Persistent REPL session with state preserved between calls.
     Each env_path gets its own session, started lazily.
+    Do not type `Pkg.activate()` explicitly in your code; instead, specify the env_path argument to select the environment.
 
     Args:
         code: Julia code to evaluate. Use display(...)/println(...) to see output.
