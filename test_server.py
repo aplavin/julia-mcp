@@ -343,6 +343,81 @@ class TestSessionManager:
         finally:
             await m.shutdown()
 
+    async def test_julia_cmd_threads_override(self):
+        m = SessionManager()  # default: --threads=auto
+        try:
+            session = await m.get_or_create(None, julia_cmd="julia --threads=1")
+            result = await session.execute("println(Threads.nthreads())", timeout=30.0)
+            assert result == "1"
+            assert session.julia_cmd == "julia --threads=1"
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_mismatch_restarts_session(self):
+        m = SessionManager()
+        try:
+            s1 = await m.get_or_create(None, julia_cmd="julia --threads=1")
+            await s1.execute("x_marker = 42", timeout=30.0)
+
+            # Different julia_cmd → should auto-restart
+            s2 = await m.get_or_create(None, julia_cmd="julia --threads=2")
+            assert s2 is not s1
+            assert not s1.is_alive()
+            result = await s2.execute(
+                "try; x_marker; catch e; println(e); end", timeout=30.0
+            )
+            assert "UndefVarError" in result  # state was lost
+            result = await s2.execute("println(Threads.nthreads())", timeout=30.0)
+            assert result == "2"
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_same_reuses_session(self):
+        m = SessionManager()
+        try:
+            s1 = await m.get_or_create(None, julia_cmd="julia --threads=1")
+            s2 = await m.get_or_create(None, julia_cmd="julia --threads=1")
+            assert s1 is s2
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_none_reuses_default(self):
+        m = SessionManager()
+        try:
+            s1 = await m.get_or_create(None)
+            s2 = await m.get_or_create(None)
+            assert s1 is s2
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_none_vs_explicit_restarts(self):
+        m = SessionManager()
+        try:
+            s1 = await m.get_or_create(None)  # julia_cmd=None
+            s2 = await m.get_or_create(None, julia_cmd="julia --threads=1")
+            assert s1 is not s2
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_shown_in_list_sessions(self):
+        m = SessionManager()
+        try:
+            await m.get_or_create(None, julia_cmd="julia --threads=1")
+            sessions = m.list_sessions()
+            assert len(sessions) == 1
+            assert sessions[0]["julia_cmd"] == "julia --threads=1"
+        finally:
+            await m.shutdown()
+
+    async def test_julia_cmd_none_not_in_list_sessions(self):
+        m = SessionManager()
+        try:
+            await m.get_or_create(None)
+            sessions = m.list_sessions()
+            assert "julia_cmd" not in sessions[0]
+        finally:
+            await m.shutdown()
+
 
 # -- Timeout auto-detection tests --
 
