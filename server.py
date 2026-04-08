@@ -2,6 +2,7 @@ import asyncio
 import atexit
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,7 @@ class JuliaSession:
         is_temp: bool = False,
         is_test: bool = False,
         julia_args: tuple[str, ...] = DEFAULT_JULIA_ARGS,
+        julia_cmd: str | None = None,
         log_file: TextIOWrapper | None = None,
     ):
         self.env_dir = env_dir
@@ -37,6 +39,7 @@ class JuliaSession:
         self.is_temp = is_temp
         self.is_test = is_test
         self.julia_args = julia_args
+        self.julia_cmd = julia_cmd
         self.process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
         self._log_file = log_file
@@ -54,16 +57,31 @@ class JuliaSession:
         return None
 
     async def start(self) -> None:
-        julia = shutil.which("julia")
-        if julia is None:
-            raise RuntimeError(
-                "Julia not found in PATH. Install from https://julialang.org/downloads/"
-            )
+        parts = shlex.split(self.julia_cmd) if self.julia_cmd else ["julia"]
+        executable = parts[0]
+        remaining = parts[1:]
+        # juliaup +channel must be the first arg after executable
+        if remaining and remaining[0].startswith("+"):
+            channel_args = [remaining[0]]
+            extra_flags = remaining[1:]
+        else:
+            channel_args = []
+            extra_flags = remaining
+
+        if not os.path.isabs(executable):
+            resolved = shutil.which(executable)
+            if resolved is None:
+                raise RuntimeError(
+                    f"'{executable}' not found in PATH. Install Julia from https://julialang.org/downloads/"
+                )
+            executable = resolved
 
         cmd = [
-            julia,
+            executable,
+            *channel_args,
             "-i",
             *self.julia_args,
+            *extra_flags,
             f"--project={self.project_path}",
         ]
 
@@ -198,12 +216,16 @@ class SessionManager:
             return TEMP_SESSION_KEY
         return str(Path(env_path).resolve())
 
-    async def get_or_create(self, env_path: str | None) -> JuliaSession:
+    async def get_or_create(self, env_path: str | None, julia_cmd: str | None = None) -> JuliaSession:
         key = self._key(env_path)
 
         # Fast path
         if key in self._sessions and self._sessions[key].is_alive():
-            return self._sessions[key]
+            if self._sessions[key].julia_cmd == julia_cmd:
+                return self._sessions[key]
+            # julia_cmd mismatch — restart with the requested config
+            await self._sessions[key].kill()
+            del self._sessions[key]
 
         # Get per-key creation lock
         async with self._global_lock:
@@ -214,7 +236,10 @@ class SessionManager:
         async with create_lock:
             # Double-check
             if key in self._sessions and self._sessions[key].is_alive():
-                return self._sessions[key]
+                if self._sessions[key].julia_cmd == julia_cmd:
+                    return self._sessions[key]
+                await self._sessions[key].kill()
+                del self._sessions[key]
 
             # Clean up dead session
             if key in self._sessions:
@@ -235,6 +260,7 @@ class SessionManager:
             session = JuliaSession(
                 env_dir, sentinel, is_temp=is_temp, is_test=is_test,
                 julia_args=self.julia_args,
+                julia_cmd=julia_cmd,
                 log_file=self._get_log_file(key),
             )
             await session.start()
@@ -255,6 +281,8 @@ class SessionManager:
                 "alive": session.is_alive(),
                 "temp": session.is_temp,
             }
+            if session.julia_cmd is not None:
+                info["julia_cmd"] = session.julia_cmd
             if key in self._log_files:
                 info["log_file"] = self._log_files[key].name
             result.append(info)
@@ -275,6 +303,7 @@ async def julia_eval(
     code: str,
     env_path: str | None = None,
     timeout: float | None = None,
+    julia_cmd: str | None = None,
 ) -> str:
     """ALWAYS use this tool to run Julia code. NEVER run julia via command line.
 
@@ -285,6 +314,7 @@ async def julia_eval(
         code: Julia code to evaluate. Use display(...)/println(...) to see output.
         env_path: Julia project directory path. Omit for a temporary environment.
         timeout: Seconds (default: 60). Auto-disabled for Pkg operations.
+        julia_cmd: Custom Julia command, should be used rarely, only when explicitly requested. Examples: "julia +1.11", "julia --check-bounds=yes", "/path/to/julia".
     """
     if timeout is None:
         effective_timeout: float | None = (
@@ -294,7 +324,7 @@ async def julia_eval(
         effective_timeout = timeout if timeout > 0 else None
 
     try:
-        session = await manager.get_or_create(env_path)
+        session = await manager.get_or_create(env_path, julia_cmd=julia_cmd)
         output = await session.execute(code, timeout=effective_timeout)
         return output if output else "(no output)"
     except RuntimeError as e:
@@ -331,8 +361,9 @@ async def julia_list_sessions() -> str:
     for s in sessions:
         status = "alive" if s["alive"] else "dead"
         label = f"{s['env_path']} (temp)" if s["temp"] else s["env_path"]
+        julia = f" julia_cmd={s['julia_cmd']}" if "julia_cmd" in s else ""
         log = f" log={s['log_file']}" if "log_file" in s else ""
-        lines.append(f"  {label}: {status}{log}")
+        lines.append(f"  {label}: {status}{julia}{log}")
     return "Active Julia sessions:\n" + "\n".join(lines)
 
 
