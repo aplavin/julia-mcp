@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/aplavin-julia-mcp-badge.png)](https://mseep.ai/app/aplavin-julia-mcp)
+
 # julia-mcp
 
 MCP server that gives AI assistants access to efficient Julia code execution. Avoids Julia's startup and compilation costs by keeping sessions alive across calls, and persists state (variables, functions, loaded packages) between them — so each iteration is fast.
