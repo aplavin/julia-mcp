@@ -126,6 +126,25 @@ Add to `.vscode/settings.json`:
 }
 ```
 
+<details>
+<summary>Custom Julia CLI arguments</summary>
+
+Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "julia": {
+        "command": "uv",
+        "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
+      }
+    }
+  }
+}
+```
+</details>
+
 ### GitHub Copilot Cloud Agent
 
 To enable the MCP for a single repo, go to Settings, then scroll down the left panel until you get to Copilot, open that dropdown and select Cloud agent. Then scroll down to the section Model Context Protocol (MCP) and add the following
@@ -146,25 +165,6 @@ To enable the MCP for a single repo, go to Settings, then scroll down the left p
   }
 }
 ```
-
-<details>
-<summary>Custom Julia CLI arguments</summary>
-
-Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "julia": {
-        "command": "uv",
-        "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
-      }
-    }
-  }
-}
-```
-</details>
 
 ## Details
 
