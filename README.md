@@ -126,6 +126,27 @@ Add to `.vscode/settings.json`:
 }
 ```
 
+### GitHub Copilot Cloud Agent
+
+To enable the MCP for a single repo, go to Settings, then scroll down the left panel until you get to Copilot, open that dropdown and select Cloud agent. Then scroll down to the section Model Context Protocol (MCP) and add the following
+
+```json
+{
+  "mcpServers": {
+    "julia": {
+      "type": "local",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/aplavin/julia-mcp",
+        "julia-mcp"
+      ],
+      "tools": ["*"]
+    }
+  }
+}
+```
+
 <details>
 <summary>Custom Julia CLI arguments</summary>
 
