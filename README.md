@@ -141,6 +141,23 @@ Append Julia flags after `server.py` to override the defaults (`--startup-file=n
 ```
 </details>
 
+### Github Copilot CLI
+
+Edit `$HOME/.copilot/mcp-config.json`, and enter
+
+```json
+{
+  "mcpServers": {
+    "julia": {
+      "type": "stdio",
+      "command": "uv",
+	    "args": ["run", "--directory", "/path/to/julia-mcp", "python",  "-u", "server.py"]
+    }
+  }
+}
+```
+Beware that on Windows, `\` must be escaped (so write as `C:\\my_folder\\...`)
+
 ### GitHub Copilot Cloud Agent
 
 To enable the MCP for a single repo, go to Settings, then scroll down the left panel until you get to Copilot, open that dropdown and select Cloud agent. Then scroll down to the section Model Context Protocol (MCP) and add the following
