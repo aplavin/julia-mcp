@@ -141,7 +141,7 @@ Append Julia flags after `server.py` to override the defaults (`--startup-file=n
 ```
 </details>
 
-### Github Copilot CLI
+### GitHub Copilot CLI
 
 Edit `$HOME/.copilot/mcp-config.json`, and enter
 
@@ -151,7 +151,7 @@ Edit `$HOME/.copilot/mcp-config.json`, and enter
     "julia": {
       "type": "stdio",
       "command": "uv",
-	    "args": ["run", "--directory", "/path/to/julia-mcp", "python",  "-u", "server.py"]
+      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "-u", "server.py"]
     }
   }
 }
