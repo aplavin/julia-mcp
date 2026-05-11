@@ -267,11 +267,14 @@ class SessionManager:
             self._sessions[key] = session
             return session
 
-    async def restart(self, env_path: str | None) -> None:
+    async def restart(self, env_path: str | None) -> bool:
+        """Kill the session for `env_path`, returning True if one was found."""
         key = self._key(env_path)
         if key in self._sessions:
             await self._sessions[key].kill()
             del self._sessions[key]
+            return True
+        return False
 
     def list_sessions(self) -> list[dict]:
         result = []
@@ -346,10 +349,21 @@ async def julia_restart(env_path: str | None = None) -> str:
     Do NOT restart just because source files were edited between script or test runs — Revise picks up those changes automatically.
 
     Args:
-        env_path: Environment to restart. If omitted, restarts the temporary session.
+        env_path: Environment to restart. If omitted, restarts the temporary session
+            (NOT every active session) — most callers should pass the same env_path
+            they used in julia_eval.
     """
-    await manager.restart(env_path)
-    return "Session restarted. A fresh session will start on next julia_eval call."
+    label = env_path if env_path is not None else "temporary"
+    killed = await manager.restart(env_path)
+    if killed:
+        return f"Session restarted (env_path={label}). A fresh session will start on next julia_eval call."
+    active = [s["env_path"] for s in manager.list_sessions()]
+    if active:
+        return (
+            f"No active session for env_path={label} — nothing to restart. "
+            f"Active sessions: {active}"
+        )
+    return f"No active session for env_path={label} — nothing to restart."
 
 
 @mcp.tool()

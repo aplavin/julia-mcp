@@ -238,7 +238,8 @@ class TestSessionManager:
     async def test_restart(self, manager: SessionManager):
         s1 = await manager.get_or_create(None)
         await s1.execute("x = 42", timeout=30.0)
-        await manager.restart(None)
+        killed = await manager.restart(None)
+        assert killed is True
         assert len(manager.list_sessions()) == 0
 
         s2 = await manager.get_or_create(None)
@@ -247,6 +248,29 @@ class TestSessionManager:
             "try; x; catch e; println(e); end", timeout=30.0
         )
         assert "UndefVarError" in result
+
+    async def test_restart_returns_false_when_no_session(self, manager: SessionManager):
+        killed = await manager.restart(None)
+        assert killed is False
+
+    async def test_restart_wrong_env_path_leaves_session_alive(self, manager: SessionManager):
+        tmpdir1 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        tmpdir2 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        try:
+            s1 = await manager.get_or_create(tmpdir1)
+            # Restart targeting the wrong path — should be a no-op
+            killed = await manager.restart(tmpdir2)
+            assert killed is False
+            assert s1.is_alive()
+            assert len(manager.list_sessions()) == 1
+            # Restart targeting the right path
+            killed = await manager.restart(tmpdir1)
+            assert killed is True
+            assert not s1.is_alive()
+        finally:
+            await manager.shutdown()
+            os.rmdir(tmpdir1)
+            os.rmdir(tmpdir2)
 
     async def test_list_sessions(self, manager: SessionManager):
         await manager.get_or_create(None)
@@ -545,7 +569,9 @@ class TestMCPTools:
     async def test_restart(self):
         async with mcp_client_session() as client:
             await client.call_tool("julia_eval", {"code": "x = 99"})
-            await client.call_tool("julia_restart", {})
+            result = await client.call_tool("julia_restart", {})
+            assert "restarted" in result.content[0].text.lower()
+            assert "temporary" in result.content[0].text
 
             result = await client.call_tool("julia_list_sessions", {})
             assert "No active" in result.content[0].text
@@ -554,6 +580,46 @@ class TestMCPTools:
                 "julia_eval", {"code": "try; x; catch e; println(e); end"}
             )
             assert "UndefVarError" in result.content[0].text
+
+    async def test_restart_reports_no_session_found(self):
+        async with mcp_client_session() as client:
+            # No sessions yet; the temp restart should report nothing was found
+            result = await client.call_tool("julia_restart", {})
+            text = result.content[0].text
+            assert "No active session" in text
+            assert "temporary" in text
+
+    async def test_restart_lists_active_sessions_when_target_missing(self):
+        async with mcp_client_session() as client:
+            tmpdir1 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            tmpdir2 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            try:
+                # Create a session for tmpdir1, then try to restart tmpdir2
+                await client.call_tool("julia_eval", {"code": "1", "env_path": tmpdir1})
+                result = await client.call_tool(
+                    "julia_restart", {"env_path": tmpdir2}
+                )
+                text = result.content[0].text
+                assert "No active session" in text
+                assert tmpdir2 in text  # reports the requested env_path
+                assert tmpdir1 in text  # lists the actually-active session
+            finally:
+                os.rmdir(tmpdir1)
+                os.rmdir(tmpdir2)
+
+    async def test_restart_with_env_path_reports_that_path(self):
+        async with mcp_client_session() as client:
+            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            try:
+                await client.call_tool("julia_eval", {"code": "1", "env_path": tmpdir})
+                result = await client.call_tool(
+                    "julia_restart", {"env_path": tmpdir}
+                )
+                text = result.content[0].text
+                assert "restarted" in text.lower()
+                assert tmpdir in text
+            finally:
+                os.rmdir(tmpdir)
 
     async def test_eval_cwd_regular(self):
         async with mcp_client_session() as client:
