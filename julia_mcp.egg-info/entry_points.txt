@@ -1,0 +1,2 @@
+[console_scripts]
+julia-mcp = server:main
