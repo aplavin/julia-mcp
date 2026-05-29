@@ -111,16 +111,14 @@ codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py --t
 
 ### VS Code Copilot
 
-Add to `.vscode/settings.json`:
+Add to `.vscode/mcp.json`:
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "julia": {
-        "command": "uv",
-        "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py"]
-      }
+  "servers": {
+    "julia": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py"]
     }
   }
 }
@@ -133,12 +131,10 @@ Append Julia flags after `server.py` to override the defaults (`--startup-file=n
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "julia": {
-        "command": "uv",
-        "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
-      }
+  "servers": {
+    "julia": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
     }
   }
 }
