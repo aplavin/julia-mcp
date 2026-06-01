@@ -163,7 +163,7 @@ class JuliaSession:
                         f"Julia process died during execution.\n"
                         f"Output before death:\n{collected}"
                     )
-                line = raw.decode().rstrip("\n").rstrip("\r")
+                line = raw.decode("utf-8").rstrip("\n").rstrip("\r")
                 if line == self.sentinel:
                     break
                 lines.append(line)
@@ -208,7 +208,7 @@ class SessionManager:
         if key not in self._log_files:
             safe_name = key.replace("/", "_").replace("\\", "_").strip("_") or "temp"
             path = os.path.join(self._log_dir, f"{safe_name}.log")
-            self._log_files[key] = open(path, "a")
+            self._log_files[key] = open(path, "a", encoding="utf-8")
         return self._log_files[key]
 
     def _cleanup_logs(self) -> None:

@@ -78,6 +78,10 @@ class TestJuliaSession:
         result = await session.execute(code, timeout=60.0)
         assert "ok" in result
 
+    async def test_unicode_output(self, session: JuliaSession):
+        result = await session.execute('println("✓ success → done ✗ fail")', timeout=30.0)
+        assert result == "✓ success → done ✗ fail"
+
     async def test_error_handling(self, session: JuliaSession):
         result = await session.execute('error("boom")', timeout=30.0)
         assert "boom" in result
