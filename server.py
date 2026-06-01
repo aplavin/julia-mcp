@@ -107,7 +107,15 @@ class JuliaSession:
         )
 
         if self.init_code:
-            await self._execute_raw(self.init_code, timeout=None)
+            marker = "__JULIA_MCP_INIT_ERROR__"
+            wrapped = f'try; {self.init_code}; catch __e; print("{marker}"); showerror(stdout, __e); end'
+            out = await self._execute_raw(wrapped, timeout=None)
+            if marker in out:
+                await self.kill()
+                raise RuntimeError(
+                    f"Failed to initialize environment {self.env_dir!r} "
+                    f"(init code {self.init_code!r}):\n{out.replace(marker, '').strip()}"
+                )
 
     def is_alive(self) -> bool:
         return self.process is not None and self.process.returncode is None
