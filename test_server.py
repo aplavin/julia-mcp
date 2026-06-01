@@ -21,6 +21,23 @@ def make_sentinel() -> str:
     return f"__JULIA_MCP_{uuid.uuid4().hex}__"
 
 
+def make_pkg_with_test_dir() -> tuple[str, str]:
+    # A named package is required for TestEnv.activate() to succeed during session init
+    pkg_dir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+    with open(os.path.join(pkg_dir, "Project.toml"), "w") as f:
+        f.write(
+            'name = "TestPkg"\n'
+            'uuid = "87654321-4321-4321-4321-cba987654321"\n'
+            'version = "0.1.0"\n'
+        )
+    os.makedirs(os.path.join(pkg_dir, "src"))
+    with open(os.path.join(pkg_dir, "src", "TestPkg.jl"), "w") as f:
+        f.write("module TestPkg\nend\n")
+    test_dir = os.path.join(pkg_dir, "test")
+    os.makedirs(test_dir)
+    return pkg_dir, test_dir
+
+
 @pytest_asyncio.fixture
 async def session():
     tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
@@ -296,9 +313,7 @@ class TestSessionManager:
             os.rmdir(tmpdir)
 
     async def test_list_sessions_test_dir_shows_test_path(self, manager: SessionManager):
-        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
-        test_dir = os.path.join(tmpdir, "test")
-        os.makedirs(test_dir)
+        tmpdir, test_dir = make_pkg_with_test_dir()
         try:
             await manager.get_or_create(test_dir)
             sessions = manager.list_sessions()
@@ -318,9 +333,7 @@ class TestSessionManager:
         assert s2.is_alive()
 
     async def test_test_dir_uses_parent_project(self, manager: SessionManager):
-        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
-        test_dir = os.path.join(tmpdir, "test")
-        os.makedirs(test_dir)
+        tmpdir, test_dir = make_pkg_with_test_dir()
         try:
             session = await manager.get_or_create(test_dir)
             # project_path should be the parent, not the test dir
@@ -331,9 +344,7 @@ class TestSessionManager:
             shutil.rmtree(tmpdir)
 
     async def test_test_dir_separate_from_parent(self, manager: SessionManager):
-        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
-        test_dir = os.path.join(tmpdir, "test")
-        os.makedirs(test_dir)
+        tmpdir, test_dir = make_pkg_with_test_dir()
         try:
             s1 = await manager.get_or_create(tmpdir)
             s2 = await manager.get_or_create(test_dir)
@@ -558,9 +569,7 @@ class TestMCPTools:
 
     async def test_list_sessions_test_dir_shows_test_path(self):
         async with mcp_client_session() as client:
-            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
-            test_dir = os.path.join(tmpdir, "test")
-            os.makedirs(test_dir)
+            tmpdir, test_dir = make_pkg_with_test_dir()
             try:
                 await client.call_tool("julia_eval", {"code": "1", "env_path": test_dir})
                 result = await client.call_tool("julia_list_sessions", {})
@@ -643,9 +652,7 @@ class TestMCPTools:
 
     async def test_eval_cwd_test_dir(self):
         async with mcp_client_session() as client:
-            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
-            test_dir = os.path.join(tmpdir, "test")
-            os.makedirs(test_dir)
+            tmpdir, test_dir = make_pkg_with_test_dir()
             try:
                 result = await client.call_tool(
                     "julia_eval", {"code": "println(pwd())", "env_path": test_dir}
@@ -653,10 +660,10 @@ class TestMCPTools:
                 assert result.content[0].text == test_dir
                 result = await client.call_tool(
                     "julia_eval",
-                    {"code": "println(Base.active_project())", "env_path": test_dir},
+                    {"code": 'using TestPkg; println("loaded")', "env_path": test_dir},
                 )
-                # --project= points to parent, not the test dir
-                assert tmpdir in result.content[0].text
+                # TestEnv.activate() succeeded: the package is available in its test env
+                assert result.content[0].text == "loaded"
             finally:
                 shutil.rmtree(tmpdir)
 
