@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -11,7 +12,14 @@ import pytest_asyncio
 from mcp.shared.memory import create_connected_server_and_client_session
 
 import server as server_mod
-from server import JuliaSession, SessionManager, TEMP_SESSION_KEY
+from server import (
+    DEFAULT_IDLE_TIMEOUT,
+    JuliaSession,
+    SessionEnvMismatchError,
+    SessionManager,
+    SessionNotFoundError,
+    TEMP_SESSION_KEY,
+)
 
 
 # -- Helpers --
@@ -19,6 +27,10 @@ from server import JuliaSession, SessionManager, TEMP_SESSION_KEY
 
 def make_sentinel() -> str:
     return f"__JULIA_MCP_{uuid.uuid4().hex}__"
+
+
+def strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text).strip()
 
 
 @pytest_asyncio.fixture
@@ -443,6 +455,115 @@ class TestSessionManager:
             await m.shutdown()
 
 
+class TestNamedSessions:
+    async def test_create_returns_unique_ids(self, manager: SessionManager):
+        sid1, _ = await manager.create_session(None)
+        sid2, _ = await manager.create_session(None)
+        assert sid1 != sid2
+        assert len(manager.list_sessions()) == 2
+
+    async def test_isolation_same_env_path(self, manager: SessionManager):
+        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        try:
+            sid1, s1 = await manager.create_session(tmpdir)
+            sid2, s2 = await manager.create_session(tmpdir)
+            assert sid1 != sid2
+            assert s1 is not s2
+
+            await s1.execute("x = 100", timeout=30.0)
+            result = await s2.execute(
+                "try; x; catch; println(\"undefined\"); end", timeout=30.0
+            )
+            assert "undefined" in result.lower() or "UndefVarError" in result
+        finally:
+            await manager.shutdown()
+            os.rmdir(tmpdir)
+
+    async def test_get_session_by_id_only(self, manager: SessionManager):
+        sid, s1 = await manager.create_session(None)
+        s2 = await manager.get_session(sid)
+        assert s1 is s2
+
+    async def test_get_session_not_found(self, manager: SessionManager):
+        with pytest.raises(SessionNotFoundError, match="Session not found"):
+            await manager.get_session("nonexistent")
+
+    async def test_env_path_mismatch(self, manager: SessionManager):
+        tmpdir1 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        tmpdir2 = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        try:
+            sid, _ = await manager.create_session(tmpdir1)
+            with pytest.raises(SessionEnvMismatchError, match="bound to env_path"):
+                await manager.get_session(sid, env_path=tmpdir2)
+        finally:
+            await manager.shutdown()
+            os.rmdir(tmpdir1)
+            os.rmdir(tmpdir2)
+
+    async def test_named_session_shown_in_list(self, manager: SessionManager):
+        sid, _ = await manager.create_session(None)
+        sessions = manager.list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0]["session_id"] == sid
+        assert "idle_seconds" in sessions[0]
+
+    async def test_restart_named_session(self, manager: SessionManager):
+        sid, s1 = await manager.create_session(None)
+        await s1.execute("x = 42", timeout=30.0)
+        killed = await manager.restart(session_id=sid)
+        assert killed is True
+        assert sid not in manager._sessions
+
+        with pytest.raises(SessionNotFoundError):
+            await manager.get_session(sid)
+
+    async def test_named_and_legacy_sessions_coexist(self, manager: SessionManager):
+        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        try:
+            sid, named = await manager.create_session(tmpdir)
+            legacy = await manager.get_or_create(tmpdir)
+            assert named is not legacy
+            assert len(manager.list_sessions()) == 2
+
+            await named.execute("x = 1", timeout=30.0)
+            await legacy.execute("x = 2", timeout=30.0)
+            result = await named.execute("println(x)", timeout=30.0)
+            assert strip_ansi(result) == "1"
+            result = await legacy.execute("println(x)", timeout=30.0)
+            assert strip_ansi(result) == "2"
+        finally:
+            await manager.shutdown()
+            os.rmdir(tmpdir)
+
+    async def test_ttl_eviction(self):
+        old = os.environ.get("JULIA_MCP_IDLE_TIMEOUT")
+        os.environ["JULIA_MCP_IDLE_TIMEOUT"] = "0.5"
+        m = SessionManager()
+        try:
+            sid, session = await m.create_session(None)
+            session.last_used = 0.0
+            await m._evict_idle_sessions()
+            assert sid not in m._sessions
+            with pytest.raises(SessionNotFoundError):
+                await m.get_session(sid)
+        finally:
+            await m.shutdown()
+            if old is None:
+                os.environ.pop("JULIA_MCP_IDLE_TIMEOUT", None)
+            else:
+                os.environ["JULIA_MCP_IDLE_TIMEOUT"] = old
+
+    async def test_default_idle_timeout(self):
+        old = os.environ.pop("JULIA_MCP_IDLE_TIMEOUT", None)
+        try:
+            m = SessionManager()
+            assert m._idle_timeout == DEFAULT_IDLE_TIMEOUT
+            await m.shutdown()
+        finally:
+            if old is not None:
+                os.environ["JULIA_MCP_IDLE_TIMEOUT"] = old
+
+
 # -- Timeout auto-detection tests --
 
 
@@ -693,3 +814,85 @@ class TestMCPTools:
             text = result.content[0].text
             assert "timed out" in text
             assert "Output before timeout" not in text
+
+    async def test_create_session(self):
+        async with mcp_client_session() as client:
+            result = await client.call_tool("julia_create_session", {})
+            assert not result.isError
+            text = result.content[0].text
+            assert "session_id=" in text
+            session_id = text.split("session_id=")[1].split()[0]
+            assert len(session_id) == 32
+
+            eval_result = await client.call_tool(
+                "julia_eval", {"code": "println(1 + 1)", "session_id": session_id}
+            )
+            assert strip_ansi(eval_result.content[0].text) == "2"
+
+    async def test_create_session_isolation_via_mcp(self):
+        async with mcp_client_session() as client:
+            tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+            try:
+                r1 = await client.call_tool(
+                    "julia_create_session", {"env_path": tmpdir}
+                )
+                r2 = await client.call_tool(
+                    "julia_create_session", {"env_path": tmpdir}
+                )
+                sid1 = r1.content[0].text.split("session_id=")[1].split()[0]
+                sid2 = r2.content[0].text.split("session_id=")[1].split()[0]
+                assert sid1 != sid2
+
+                await client.call_tool(
+                    "julia_eval", {"code": "x = 99", "session_id": sid1}
+                )
+                result = await client.call_tool(
+                    "julia_eval",
+                    {
+                        "code": "try; x; catch e; println(e); end",
+                        "session_id": sid2,
+                    },
+                )
+                assert "UndefVarError" in result.content[0].text
+            finally:
+                os.rmdir(tmpdir)
+
+    async def test_eval_unknown_session_id(self):
+        async with mcp_client_session() as client:
+            result = await client.call_tool(
+                "julia_eval",
+                {"code": "1", "session_id": "deadbeef" * 4},
+            )
+            assert "Session not found" in result.content[0].text
+            assert "julia_create_session" in result.content[0].text
+
+    async def test_list_sessions_shows_session_id(self):
+        async with mcp_client_session() as client:
+            create_result = await client.call_tool("julia_create_session", {})
+            session_id = (
+                create_result.content[0].text.split("session_id=")[1].split()[0]
+            )
+            list_result = await client.call_tool("julia_list_sessions", {})
+            text = list_result.content[0].text
+            assert session_id in text
+            assert "idle=" in text
+
+    async def test_restart_named_session_via_mcp(self):
+        async with mcp_client_session() as client:
+            create_result = await client.call_tool("julia_create_session", {})
+            session_id = (
+                create_result.content[0].text.split("session_id=")[1].split()[0]
+            )
+            await client.call_tool(
+                "julia_eval", {"code": "x = 1", "session_id": session_id}
+            )
+            restart_result = await client.call_tool(
+                "julia_restart", {"session_id": session_id}
+            )
+            assert "restarted" in restart_result.content[0].text.lower()
+            assert "julia_create_session" in restart_result.content[0].text
+
+            eval_result = await client.call_tool(
+                "julia_eval", {"code": "1", "session_id": session_id}
+            )
+            assert "Session not found" in eval_result.content[0].text

@@ -9,9 +9,10 @@ MCP server that gives AI assistants access to efficient Julia code execution. Av
 
 ## Tools
 
-- **julia_eval(code, env_path?, timeout?)** — execute Julia code in a persistent session. `env_path` sets the Julia project directory (omit for a temporary session). `timeout` defaults to 60s and is auto-disabled for `Pkg` operations.
-- **julia_restart(env_path?)** — restart a session, clearing all state. If `env_path` is omitted, restarts the temporary session.
-- **julia_list_sessions** — list active sessions and their status
+- **julia_eval(code, env_path?, session_id?, timeout?)** — execute Julia code in a persistent session. `env_path` sets the Julia project directory (omit for a temporary session). `session_id` selects a named session from `julia_create_session`. `timeout` defaults to 60s and is auto-disabled for `Pkg` operations.
+- **julia_create_session(env_path?, julia_cmd?)** — create a dedicated session and receive a unique `session_id` for multi-agent isolation.
+- **julia_restart(env_path?, session_id?)** — restart a session, clearing all state. If `env_path` is omitted, restarts the temporary session.
+- **julia_list_sessions** — list active sessions, session IDs, idle time, and status
 
 ## Requirements
 
@@ -181,7 +182,9 @@ To enable the MCP for a single repo, go to Settings, then scroll down the left p
 
 ## Details
 
-- Each unique `env_path` gets its own isolated Julia session. Omitting `env_path` uses a temporary session that is cleaned up on MCP shutdown.
+- Each unique `env_path` gets its own isolated Julia session when `session_id` is omitted (legacy single-agent behavior). Omitting `env_path` uses a temporary session that is cleaned up on MCP shutdown.
+- For **multi-agent isolation**, each agent should call `julia_create_session` once, then pass the returned `session_id` on all subsequent `julia_eval` and `julia_restart` calls. Multiple agents can work on the same project concurrently without sharing REPL state.
+- Idle sessions are automatically evicted after 30 minutes (override with `JULIA_MCP_IDLE_TIMEOUT` env var, in seconds).
 - If `env_path` ends in `/test/`, the parent directory is used as the project and `TestEnv` is activated automatically. For this to work, `TestEnv` must be installed in the base environment.
 - Julia is launched with `--threads=auto` and `--startup-file=no` by default. Pass custom Julia CLI flags after `server.py` to override these defaults entirely.
 
