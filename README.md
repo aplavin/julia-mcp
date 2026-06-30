@@ -1,4 +1,4 @@
-# julia-mcp
+j# julia-mcp
 
 MCP server that gives AI assistants access to efficient Julia code execution. Avoids Julia's startup and compilation costs by keeping sessions alive across calls, and persists state (variables, functions, loaded packages) between them — so each iteration is fast.
 
@@ -178,6 +178,22 @@ To enable the MCP for a single repo, go to Settings, then scroll down the left p
   }
 }
 ```
+
+### Opencode
+
+Edit `$HOME/.opencode/opencode.json`, and enter
+
+```json
+{
+  "mcpServers": {
+    "julia": {
+      "type": "local",
+      "command": ["uv", "run", "--directory", "/path/to/julia-mcp", "python", "server.py"]
+    }
+  }
+}
+```
+
 
 ## Details
 
