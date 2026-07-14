@@ -135,13 +135,13 @@ class JuliaSession:
                 ts = time.strftime("%H:%M:%S")
                 self._log_file.write(f"[{ts}] julia> {code}\n")
                 self._log_file.flush()
-            output = await self._execute_raw(wrapped, timeout)
-            if self._log_file and output:
-                self._log_file.write(f"{output}\n\n")
+            output = await self._execute_raw(wrapped, timeout, log=True)
+            if self._log_file:
+                self._log_file.write("\n")
                 self._log_file.flush()
             return output
 
-    async def _execute_raw(self, code: str, timeout: float | None) -> str:
+    async def _execute_raw(self, code: str, timeout: float | None, log: bool = False) -> str:
         assert self.process is not None
         assert self.process.stdin is not None
 
@@ -167,6 +167,10 @@ class JuliaSession:
                 if line == self.sentinel:
                     break
                 lines.append(line)
+                # Stream to the log as output arrives, so a running command can be tailed
+                if log and self._log_file:
+                    self._log_file.write(f"{line}\n")
+                    self._log_file.flush()
             # The extra \n before sentinel may leave a trailing empty line
             if lines and lines[-1] == "":
                 lines.pop()
