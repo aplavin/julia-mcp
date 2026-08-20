@@ -53,10 +53,10 @@ claude mcp add --scope project julia -- uv run --directory /any_directory/julia-
 <details>
 <summary>Custom Julia CLI arguments</summary>
 
-Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+Append Julia flags after `server.py` to override the default (`--threads=auto`):
 
 ```bash
-claude mcp add --scope user julia -- uv run --directory /any_directory/julia-mcp python server.py --threads=1 --startup-file=yes
+claude mcp add --scope user julia -- uv run --directory /any_directory/julia-mcp python server.py --threads=1 --startup-file=no
 ```
 </details>
 
@@ -78,14 +78,14 @@ Add to `claude_desktop_config.json`:
 <details>
 <summary>Custom Julia CLI arguments</summary>
 
-Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+Append Julia flags after `server.py` to override the default (`--threads=auto`):
 
 ```json
 {
   "mcpServers": {
     "julia": {
       "command": "uv",
-      "args": ["run", "--directory", "/any_directory/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
+      "args": ["run", "--directory", "/any_directory/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=no"]
     }
   }
 }
@@ -102,10 +102,10 @@ codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py
 <details>
 <summary>Custom Julia CLI arguments</summary>
 
-Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+Append Julia flags after `server.py` to override the default (`--threads=auto`):
 
 ```
-codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py --threads=1 --startup-file=yes
+codex mcp add julia -- uv run --directory /any_directory/julia-mcp server.py --threads=1 --startup-file=no
 ```
 </details>
 
@@ -127,14 +127,14 @@ Add to `.vscode/mcp.json`:
 <details>
 <summary>Custom Julia CLI arguments</summary>
 
-Append Julia flags after `server.py` to override the defaults (`--startup-file=no --threads=auto`):
+Append Julia flags after `server.py` to override the default (`--threads=auto`):
 
 ```json
 {
   "servers": {
     "julia": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=yes"]
+      "args": ["run", "--directory", "/path/to/julia-mcp", "python", "server.py", "--threads=1", "--startup-file=no"]
     }
   }
 }
@@ -183,7 +183,7 @@ To enable the MCP for a single repo, go to Settings, then scroll down the left p
 
 - Each unique `env_path` gets its own isolated Julia session. Omitting `env_path` uses a temporary session that is cleaned up on MCP shutdown.
 - If `env_path` ends in `/test/`, the parent directory is used as the project and `TestEnv` is activated automatically. For this to work, `TestEnv` must be installed in the base environment.
-- Julia is launched with `--threads=auto` and `--startup-file=no` by default. Pass custom Julia CLI flags after `server.py` to override these defaults entirely.
+- Julia is launched with `--threads=auto` by default. Pass custom Julia CLI flags after `server.py` to override this default entirely.
 
 
 ## Alternatives
