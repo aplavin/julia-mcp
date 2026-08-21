@@ -79,7 +79,6 @@ class JuliaSession:
         cmd = [
             executable,
             *channel_args,
-            "-i",
             *self.julia_args,
             *extra_flags,
             f"--project={self.project_path}",
