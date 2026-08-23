@@ -392,7 +392,7 @@ class TestSessionManager:
         finally:
             await m.shutdown()
 
-    async def test_julia_cmd_mismatch_restarts_session(self):
+    async def test_julia_cmd_mismatch_restarts_unnamed_session(self):
         m = SessionManager()
         try:
             s1 = await m.get_or_create(None, julia_cmd="julia --threads=1")
@@ -435,6 +435,7 @@ class TestSessionManager:
             s1 = await m.get_or_create(None)  # julia_cmd=None
             s2 = await m.get_or_create(None, julia_cmd="julia --threads=1")
             assert s1 is not s2
+            assert not s1.is_alive()
         finally:
             await m.shutdown()
 
@@ -445,6 +446,7 @@ class TestSessionManager:
             sessions = m.list_sessions()
             assert len(sessions) == 1
             assert sessions[0]["julia_cmd"] == "julia --threads=1"
+            assert sessions[0]["cmd"].endswith("--threads=1 --project=" + sessions[0]["env_path"])
         finally:
             await m.shutdown()
 
@@ -456,6 +458,170 @@ class TestSessionManager:
             assert "julia_cmd" not in sessions[0]
         finally:
             await m.shutdown()
+
+
+# -- Session naming tests --
+
+
+def stub_session(manager: SessionManager, env_path: str, julia_cmd=None, name=None) -> JuliaSession:
+    """Register a session object without launching Julia, for pure addressing checks."""
+    key = manager._key(env_path, julia_cmd)
+    session = JuliaSession(key[0], make_sentinel(), julia_cmd=key[1], name=name)
+    manager._sessions[key] = session
+    if name is not None:
+        manager._names[name] = key
+    return session
+
+
+class TestSessionNames:
+    def test_resolve_by_name_alone(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        assert manager.plan(name="v10") == (("/some/pkg", "julia +1.10"), [])
+
+    def test_unknown_name_lists_known_names(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", name="v10")
+        with pytest.raises(ValueError, match=r"Unknown session name 'v11'.*\['v10'\]"):
+            manager.plan(name="v11")
+
+    def test_name_without_env_path_cannot_create(self, manager: SessionManager):
+        with pytest.raises(ValueError, match="Pass env_path to create it"):
+            manager.plan(name="v10")
+
+    def test_name_cannot_address_temp_session(self, manager: SessionManager):
+        with pytest.raises(ValueError, match="Cannot name a temporary session"):
+            manager.plan(julia_cmd="julia +1.10", name="v10")
+
+    def test_empty_name_rejected(self, manager: SessionManager):
+        with pytest.raises(ValueError, match="must not be empty"):
+            manager.plan(env_path="/some/pkg", name="  ")
+
+    def test_unnamed_session_is_replaced(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10")
+        key, doomed = manager.plan(env_path="/some/pkg", julia_cmd="julia +1.11")
+        assert key == ("/some/pkg", "julia +1.11")
+        assert doomed == [("/some/pkg", "julia +1.10")]
+
+    def test_named_session_is_not_replaced(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        with pytest.raises(ValueError, match=r"named session\(s\) \['v10'\]"):
+            manager.plan(env_path="/some/pkg", julia_cmd="julia +1.11")
+
+    def test_same_name_with_other_settings_replaces_it(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        key, doomed = manager.plan(env_path="/some/pkg", julia_cmd="julia +1.11", name="v10")
+        assert key == ("/some/pkg", "julia +1.11")
+        assert doomed == [("/some/pkg", "julia +1.10")]
+
+    def test_free_name_does_not_replace_unnamed_session(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg")
+        assert manager.plan(env_path="/some/pkg", julia_cmd="julia +1.11", name="v11") == (
+            ("/some/pkg", "julia +1.11"),
+            [],
+        )
+
+    def test_free_name_adopts_unnamed_session_with_same_settings(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10")
+        assert manager.plan(env_path="/some/pkg", julia_cmd="julia +1.10", name="v10") == (
+            ("/some/pkg", "julia +1.10"),
+            [],
+        )
+
+    def test_second_name_for_same_settings_errors(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        with pytest.raises(ValueError, match="already belongs to session 'v10'"):
+            manager.plan(env_path="/some/pkg", julia_cmd="julia +1.10", name="ten")
+
+    def test_settings_address_named_session_without_replacing(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        assert manager.plan(env_path="/some/pkg", julia_cmd="julia +1.10") == (
+            ("/some/pkg", "julia +1.10"),
+            [],
+        )
+
+    def test_julia_cmd_whitespace_normalized(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia  +1.10", name="v10")
+        assert manager.plan(env_path="/some/pkg", julia_cmd="julia +1.10") == (
+            ("/some/pkg", "julia +1.10"),
+            [],
+        )
+
+    def test_restart_by_env_path_finds_the_only_session(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        assert manager.resolve_key(env_path="/some/pkg") == ("/some/pkg", "julia +1.10")
+
+    def test_restart_by_env_path_is_ambiguous_with_several(self, manager: SessionManager):
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.10", name="v10")
+        stub_session(manager, "/some/pkg", julia_cmd="julia +1.11", name="v11")
+        with pytest.raises(ValueError, match="has several sessions"):
+            manager.resolve_key(env_path="/some/pkg")
+
+    async def test_named_session_reused_across_calls(self, manager: SessionManager):
+        tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+        try:
+            s1 = await manager.get_or_create(tmpdir, name="pkg")
+            await s1.execute("x_marker = 42", timeout=30.0)
+            s2 = await manager.get_or_create(name="pkg")
+            assert s2 is s1
+            assert await s2.execute("println(x_marker)", timeout=30.0) == "42"
+        finally:
+            shutil.rmtree(tmpdir)
+
+    async def test_two_named_julia_cmds_on_one_env_coexist(self, manager: SessionManager):
+        tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+        try:
+            one = await manager.get_or_create(tmpdir, julia_cmd="julia --threads=1", name="t1")
+            two = await manager.get_or_create(tmpdir, julia_cmd="julia --threads=2", name="t2")
+            assert one is not two
+            assert one.is_alive() and two.is_alive()
+            assert await manager.get_or_create(name="t1") is one
+            assert (await one.execute("println(Threads.nthreads())", timeout=30.0)) == "1"
+            assert (await two.execute("println(Threads.nthreads())", timeout=30.0)) == "2"
+        finally:
+            shutil.rmtree(tmpdir)
+
+    async def test_name_adopts_existing_unnamed_session(self, manager: SessionManager):
+        tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+        try:
+            s1 = await manager.get_or_create(tmpdir)
+            s2 = await manager.get_or_create(tmpdir, name="pkg")
+            assert s2 is s1
+            assert s1.name == "pkg"
+            assert await manager.get_or_create(name="pkg") is s1
+        finally:
+            shutil.rmtree(tmpdir)
+
+    async def test_restart_by_name_forgets_name(self, manager: SessionManager):
+        tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+        try:
+            s1 = await manager.get_or_create(tmpdir, name="pkg")
+            assert await manager.restart(name="pkg") is True
+            assert not s1.is_alive()
+            assert manager.list_sessions() == []
+            with pytest.raises(ValueError, match="Unknown session name"):
+                await manager.restart(name="pkg")
+        finally:
+            shutil.rmtree(tmpdir)
+
+    async def test_dead_named_session_recreated_on_same_env(self, manager: SessionManager):
+        tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="julia-mcp-test-"))
+        try:
+            s1 = await manager.get_or_create(tmpdir, name="pkg")
+            await s1.kill()
+            s2 = await manager.get_or_create(name="pkg")
+            assert s2 is not s1
+            assert s2.env_dir == tmpdir
+            assert not s2.is_temp
+            assert s2.name == "pkg"
+        finally:
+            shutil.rmtree(tmpdir)
+
+    async def test_name_shown_in_list_sessions(self, manager: SessionManager):
+        tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+        try:
+            await manager.get_or_create(tmpdir, name="pkg")
+            assert manager.list_sessions()[0]["name"] == "pkg"
+        finally:
+            shutil.rmtree(tmpdir)
 
 
 # -- Timeout auto-detection tests --
@@ -511,6 +677,34 @@ async def mcp_client_session():
 
 
 class TestMCPTools:
+    async def test_eval_by_name_and_error_messages(self):
+        async with mcp_client_session() as client:
+            tmpdir = tempfile.mkdtemp(prefix="julia-mcp-test-")
+            try:
+                await client.call_tool(
+                    "julia_eval", {"code": "y_marker = 7", "env_path": tmpdir, "name": "pkg"}
+                )
+                result = await client.call_tool(
+                    "julia_eval", {"code": "println(y_marker)", "name": "pkg"}
+                )
+                assert result.content[0].text == "7"
+
+                result = await client.call_tool(
+                    "julia_eval", {"code": "1", "name": "typo"}
+                )
+                assert "Unknown session name 'typo'" in result.content[0].text
+
+                result = await client.call_tool(
+                    "julia_eval", {"code": "1", "env_path": tmpdir, "name": "other"}
+                )
+                assert "already belongs to session 'pkg'" in result.content[0].text
+
+                result = await client.call_tool("julia_list_sessions", {})
+                assert "[pkg]" in result.content[0].text
+                assert "Julia args applied to every session: --threads=auto" in result.content[0].text
+            finally:
+                shutil.rmtree(tmpdir)
+
     async def test_eval_basic(self):
         async with mcp_client_session() as client:
             result = await client.call_tool("julia_eval", {"code": "println(1 + 1)"})
